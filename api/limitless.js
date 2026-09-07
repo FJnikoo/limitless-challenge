@@ -1,10 +1,26 @@
 const UPSTREAM = "https://api.limitless.exchange";
 
-const ALLOWED_PATHS = new Set([
-  "/ugm/esports/matches",
-  "/ugm/football-live/fixtures",
-  "/markets/active"
-]);
+function isAllowedPath(path) {
+  if (path === "/ugm/esports/matches") return true;
+
+  if (path === "/ugm/football-live/fixtures") return true;
+
+  if (path === "/markets/active") return true;
+
+  if (
+    /^\/ugm\/football-live\/fixtures\/[^/]+\/availability$/.test(path)
+  ) {
+    return true;
+  }
+
+  if (
+    /^\/ugm\/esports\/matches\/[^/]+\/availability$/.test(path)
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 function sendJson(res, status, payload) {
   res.status(status).json(payload);
@@ -13,6 +29,7 @@ function sendJson(res, status, payload) {
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
+
     return sendJson(res, 405, {
       error: "Method not allowed"
     });
@@ -22,7 +39,7 @@ export default async function handler(req, res) {
     ? req.query.path
     : "";
 
-  if (!ALLOWED_PATHS.has(path)) {
+  if (!isAllowedPath(path)) {
     return sendJson(res, 400, {
       error: "Unsupported Limitless API path",
       path
