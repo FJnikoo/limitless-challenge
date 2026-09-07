@@ -272,93 +272,40 @@
       { id: "valencia-betis", sport: "football", league: "Football · LaLiga", teams: "Valencia vs Real Betis", time: "Tonight · 20:00", home: "Valencia", away: "Real Betis" },
     ];
 
-    const LIMITLESS_API_BASE = "https://api.limitless.exchange";
-
-    /* ---------------------------------------------------------------
-       CORS WORKAROUND
-       api.limitless.exchange's /ugm/* + /markets/* endpoints only send
-       Access-Control-Allow-Origin for requests coming from limitless.exchange
-       itself, so a standalone HTML file gets blocked by the browser (the
-       data comes back fine server-side — the browser just won't hand it to
-       this page's JS without that header).
-
-       PROXY_BASE, if set, is prepended so requests go through a proxy that
-       fetches server-side (no browser CORS there) and returns the same JSON
-       with an Access-Control-Allow-Origin: * header added.
-
-       - Quick/unstable: a public proxy (corsproxy.io, allorigins.win) — free,
-         zero setup, but shared/rate-limited and can go down without notice.
-         Fine to confirm everything else works.
-       - Stable: your own Cloudflare Worker (free, ~5 min from a phone
-         browser, no computer/CLI needed). See CLOUDFLARE_WORKER_SOURCE
-         comment near the end of this file for the code to paste in, then
-         just swap PROXY_BASE to your Worker's URL.
-       ----------------------------------------------------------------- */
-    // A standalone HTML file cannot call api.limitless.exchange directly because
-    // the API does not expose the required CORS header to file:// / arbitrary origins.
-    // Keep this blank so the app can work with the public fallback gateways below.
-    // If you deploy your own Cloudflare Worker, put its URL here ending in /?url=.
-    const PROXY_BASE = "https://limitless2.tonybrown9292.workers.dev/?url=";
-    const FALLBACK_PROXIES = [];
-
-    function apiTarget(path) { return LIMITLESS_API_BASE + path; }
-    function apiUrl(path, proxyBase) {
-      const target = apiTarget(path);
-      const base = proxyBase == null ? PROXY_BASE : proxyBase;
-      return base ? (base + encodeURIComponent(target)) : target;
-    }
-
     async function fetchLimitlessJson(path) {
-      // Try all usable routes in parallel. This keeps a dead/slow public proxy
-      // from adding 8 seconds *per proxy* to the loading screen.
-      const bases = [];
-      if (PROXY_BASE) bases.push(PROXY_BASE);
-      FALLBACK_PROXIES.forEach(function (proxy) {
-        if (bases.indexOf(proxy) < 0) bases.push(proxy);
-      });
-      // Direct API can work when this page is hosted on an allowed Limitless origin.
-      bases.push("");
+  const url = new URL("/api/limitless", window.location.origin);
 
-      const attempts = bases.map(function (proxyBase) {
-        const url = apiUrl(path, proxyBase);
-        return new Promise(function (resolve, reject) {
-          const controller = new AbortController();
-          const timer = setTimeout(function () { controller.abort(); }, 7000);
-          fetch(url, {
-            headers: { "Accept": "application/json" },
-            cache: "no-store",
-            signal: controller.signal
-          }).then(function (r) {
-            if (!r.ok) throw new Error("HTTP " + r.status);
-            return r.text();
-          }).then(function (text) {
-            if (!text || text.trim().startsWith("<")) {
-              throw new Error("Proxy returned HTML instead of JSON");
-            }
-            return JSON.parse(text);
-          }).then(function (json) {
-            clearTimeout(timer);
-            resolve(json);
-          }).catch(function (e) {
-            clearTimeout(timer);
-            console.warn("[Limitless] request failed:", url, e);
-            reject(e);
-          });
-        });
-      });
+  const [pathname, rawQuery = ""] = path.split("?");
+  url.searchParams.set("path", pathname);
 
-      if (Promise.any) {
-        return Promise.any(attempts);
-      }
+  const upstreamParams = new URLSearchParams(rawQuery);
 
-      // Compatibility fallback for older WebViews.
-      let lastError = null;
-      for (let i = 0; i < attempts.length; i++) {
-        try { return await attempts[i]; }
-        catch (e) { lastError = e; }
-      }
-      throw lastError || new Error("No Limitless endpoint available");
-    }
+  for (const [key, value] of upstreamParams.entries()) {
+    url.searchParams.append(key, value);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json"
+    },
+    cache: "no-store"
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `Limitless proxy HTTP ${response.status}: ${text.slice(0, 240)}`
+    );
+  }
+
+  if (!text || text.trim().startsWith("<")) {
+    throw new Error("Limitless proxy returned HTML instead of JSON");
+  }
+
+  return JSON.parse(text);
+}
 
     // Sports shown in the "Field" row. Each needs a matching branch in
     // loadSport() below that pulls that sport's live match list from
